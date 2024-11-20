@@ -1,0 +1,22 @@
+ideea e ca nu este ok sa folosim full.signal() sau empty.signal() doar cand conditiile minime sunt atinse, deoarece, de exemplu in 
+enq(), ar trebui sa apelam empty.signal() si atunci cand count e mai mare decat 1 (daca queue_size e 4 de exemplu, nu are sens sa nu dam signal si cand count == 2,3,4), altfel majoritatea threadurilor consumer asteapta inutil si eventual ajungem la deadlock in unele situatii
+
+P1 P2 - producers
+C1 C2 - consumers
+
+
+presupunem queue_size = 4 de exemplu
+C1 C2 asteapta la empty.await() in deq(), deoarece count == 0 in momentul in care au inceput executia
+count == 0, deci:
+P1 enq(x) ->count != 4 => count = 1 si semnaleaza unui consumer (sa zicem C1) : count == 1 =>empty.signal(), apoi asteapta la full.await()
+P2 enq(y) ->count != 4 => count = 2 si nu mai apeleaza empty.signal() deoarece count != 1, apoi asteapta la full.await()
+
+coada este {x,y}
+
+C1 deq() -> scoate y din coada, -> count = 1, dar count != 3, deci nu apeleaza full.signal(), apoi asteapta la empty.await()
+
+concluzie:
+C2 asteapta in empty.await() de la inceputul executiei
+P1 si P2 vor astepta la infinit dupa ce au adaugat cate un element, deoarece C1 nu a folosit full.signal()
+C1 asteapta si el in empty.await(), deoarece P1 si P2 sunt blocati
+=> deadlock
