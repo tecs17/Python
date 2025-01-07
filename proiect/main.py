@@ -27,12 +27,12 @@ def db_get_all_persons():
         persons.append(row)
     return persons
 
-def db_create_meeting(start_date,end_date,person_ids):
+def db_create_meeting(start_date,end_date,title,person_ids):
     #fac checkuri pentru date incorecte inainte
-    result = cur.execute("""INSERT INTO meetings (start_date,end_date) VALUES
-                (%s,%s)
+    result = cur.execute("""INSERT INTO meetings (start_date,end_date,title) VALUES
+                (%s,%s,%s)
                 RETURNING id; 
-                """, (start_date,end_date))
+                """, (start_date,end_date,title))
     if result != None:
         return "An error occurred while creating the meeting."
     
@@ -49,7 +49,7 @@ def db_create_meeting(start_date,end_date,person_ids):
 def db_meetings_in_interval(start_date, end_date):
     cur.execute("""
         SELECT 
-            m.id AS meeting_id, m.start_date, m.end_date,
+            m.id AS meeting_id, m.start_date, m.end_date, m.title,
             p.id AS person_id, p.name AS person_name, p.age AS person_age
         FROM 
             meetings m
@@ -76,13 +76,52 @@ def db_meetings_in_interval(start_date, end_date):
                 "meeting_id": row[0],
                 "start_date": row[1],
                 "end_date": row[2],
+                "title":row[3],
                 "attendees": []
             }
-        if row[3]:  
+        if row[4]:  
             meetings[meeting_id]["attendees"].append({
-                "id": row[3],
-                "name": row[4],
-                "age": row[5]
+                "id": row[4],
+                "name": row[5],
+                "age": row[6]
+            })    
+    return meetings
+
+def db_get_meeting_by_id(id):
+    cur.execute("""
+        SELECT 
+            m.id AS meeting_id, m.start_date, m.end_date, m.title,
+            p.id AS person_id, p.name AS person_name, p.age
+        FROM 
+            meetings m
+        LEFT JOIN 
+            meetings_persons mp ON m.id = mp.meeting_id
+        LEFT JOIN 
+            persons p ON mp.person_id = p.id
+        WHERE 
+            m.id = %s ;
+    """, (id,))
+    
+    rows = cur.fetchall()
+
+    if len(rows) == 0:  
+        return    
+    meetings = {}
+    for row in rows:    
+        meeting_id = row[0]
+        if meeting_id not in meetings:
+            meetings[meeting_id] = {
+                "meeting_id": row[0],
+                "start_date": row[1],
+                "end_date": row[2],
+                "title":row[3],
+                "attendees": []
+            }
+        if row[4]:  
+            meetings[meeting_id]["attendees"].append({
+                "id": row[4],
+                "name": row[5],
+                "age": row[6]
             })    
     return meetings
 
@@ -98,14 +137,20 @@ def main_menu():
     def open_print_meetings():
         root.destroy()
         print_meetings_window()
+    
+    def open_export():
+        root.destroy()
+        export_window()
 
     root = tk.Tk()
-    root.geometry("300x140")
+    root.geometry("300x180")
     root.title("Meeting Scheduler")
 
     tk.Button(root, text="Add a Person", command=open_add_person, width=20).pack(pady=10)
     tk.Button(root, text="Create a Meeting", command=open_create_meeting, width=20).pack(pady=10)
     tk.Button(root, text="Print Meetings in Interval", command=open_print_meetings, width=20).pack(pady=10)
+    tk.Button(root, text="Export", command=open_export, width=20).pack(pady=10)
+
     
     root.mainloop()
 
@@ -166,9 +211,10 @@ def create_meeting_window():
     def submit_meeting():
         start_date = start_date_entry.get()
         end_date = end_date_entry.get()
+        title = title_entry.get()
         selected_persons = [person[0] for idx, person in enumerate(persons_in_db) if person_vars[idx].get()]
         
-        if not start_date or not end_date or not selected_persons:
+        if not start_date or not end_date or not title or not selected_persons:
             messagebox.showerror("Error", "All fields must be filled and at least one person must be selected!")
             return
         
@@ -193,7 +239,7 @@ def create_meeting_window():
         
 
         
-        result = db_create_meeting(start_date, end_date, selected_persons)
+        result = db_create_meeting(start_date, end_date, title, selected_persons)
         messagebox.showinfo("Result", result)
         
 
@@ -207,11 +253,15 @@ def create_meeting_window():
     tk.Label(create_meeting, text="End Date (YYYY-MM-DD HH:MM):").grid(row=1, column=0, padx=10, pady=5)
     end_date_entry = tk.Entry(create_meeting)
     end_date_entry.grid(row=1, column=1, padx=10, pady=5)
+
+    tk.Label(create_meeting, text="Title:").grid(row=2, column=0, padx=10, pady=5)
+    title_entry = tk.Entry(create_meeting)
+    title_entry.grid(row=2, column=1, padx=10, pady=5)
     
-    tk.Label(create_meeting, text="Select Attendees:").grid(row=2, column=0, columnspan=2, pady=5)
+    tk.Label(create_meeting, text="Select Attendees:").grid(row=3, column=0, columnspan=2, pady=5)
 
     frame = tk.Frame(create_meeting)
-    frame.grid(row=3, column=0, columnspan=2)
+    frame.grid(row=4, column=0, columnspan=2)
     canvas = tk.Canvas(frame, width=300, height=200)
     scroll_y = tk.Scrollbar(frame, orient="vertical", command=canvas.yview)
     list_frame = tk.Frame(canvas)
@@ -230,9 +280,9 @@ def create_meeting_window():
     scroll_y.pack(side="right", fill="y")
     
     submit_button = tk.Button(create_meeting, text="Submit", command=submit_meeting)
-    submit_button.grid(row=4, column=0, columnspan=2, pady=10)
+    submit_button.grid(row=5, column=0, columnspan=2, pady=10)
     back_button = tk.Button(create_meeting, text="Back", command=back_to_main)
-    back_button.grid(row=5, column=0, columnspan=2, pady=10)
+    back_button.grid(row=6, column=0, columnspan=2, pady=10)
     
     create_meeting.mainloop()
 
@@ -292,6 +342,7 @@ def print_meetings_window():
                 tk.Label(scrollable_frame, text=f"Meeting ID: {meeting['meeting_id']}", font=("Arial", 12, "bold")).pack(anchor="w", pady=5)
                 tk.Label(scrollable_frame, text=f"Start Date: {meeting['start_date']}").pack(anchor="w")
                 tk.Label(scrollable_frame, text=f"End Date: {meeting['end_date']}").pack(anchor="w")
+                tk.Label(scrollable_frame, text=f"Title: {meeting['title']}").pack(anchor="w")
                 tk.Label(scrollable_frame, text="Attendees:").pack(anchor="w")
                 for attendee in meeting["attendees"]:
                     tk.Label(scrollable_frame, text=f"  - {attendee['name']} (Age: {attendee['age']})").pack(anchor="w")
@@ -320,6 +371,150 @@ def print_meetings_window():
     
     print_meetings.mainloop()
 
+def import_window():
+    print()
+
+def export_to_ics(meetings, file_name):
+    file_name += ".ics"
+    try:
+        with open(file_name, "w") as f:
+            f.write("BEGIN:VCALENDAR\n")
+            f.write("VERSION:2.0\n")
+            #f.write("PRODID:-//YourAppName//MeetingScheduler//EN\n")
+            
+            for meeting in meetings.values():
+                f.write("BEGIN:VEVENT\n")
+                f.write(f"UID:meeting_{meeting['meeting_id']}\n")
+                #f.write(f"DTSTAMP:{datetime.now().strftime('%Y%m%dT%H%M%SZ')}\n")
+                f.write(f"DTSTART:{meeting['start_date'].strftime('%Y%m%dT%H%M%S')}\n")
+                f.write(f"DTEND:{meeting['end_date'].strftime('%Y%m%dT%H%M%S')}\n")
+                f.write(f"SUMMARY:{meeting['title']}\n")
+               # f.write(f"DESCRIPTION:{meeting['description']}\n")
+                for attendee in meeting["attendees"]:
+                    f.write(f"ATTENDEE:{attendee['name']}\n")
+                f.write("END:VEVENT\n")
+            
+            f.write("END:VCALENDAR\n")
+        return "Export successful!"
+    except Exception as e:
+        return f"Error during export: {e}"
+
+def export_by_id_window():
+    def back_to_export():
+        export_by_id_widget.destroy()
+        export_window()
+
+    def export_meeting():
+        meeting_id = meeting_id_entry.get()
+        filename = filename_entry.get()
+        if not meeting_id or not filename:
+            messagebox.showerror("Error", "All fields must be filled!")
+            return
+        try:
+            meeting_id = int(meeting_id)
+        except ValueError:
+            messagebox.showerror("Error", "ID must be a number!")
+            return
+        meetings = db_get_meeting_by_id(meeting_id)
+        if not meetings:
+            messagebox.showerror("Error", f"Meeting with id {meeting_id} doesn`t exist!")
+            return
+        result = export_to_ics(meetings,filename)
+        messagebox.showinfo("Result", result)
+  
+    export_by_id_widget = tk.Tk()
+    export_by_id_widget.title("Export by id")
+
+    tk.Label(export_by_id_widget, text="Meeting ID:").grid(row=0, column=0, padx=10, pady=5)
+    meeting_id_entry = tk.Entry(export_by_id_widget)
+    meeting_id_entry.grid(row=0, column=1, padx=10, pady=5)
+
+    tk.Label(export_by_id_widget, text="File Name:").grid(row=1, column=0, padx=10, pady=5)
+    filename_entry = tk.Entry(export_by_id_widget)
+    filename_entry.grid(row=1, column=1, padx=10, pady=5)
+
+    export_button = tk.Button(export_by_id_widget, text="Export", command=export_meeting)
+    export_button.grid(row=2, column=0, columnspan=2, pady=10)
+
+    back_button = tk.Button(export_by_id_widget, text="Back", command=back_to_export)
+    back_button.grid(row=3, column=0, columnspan=2, pady=10)
+
+    export_by_id_widget.mainloop()
+
+def export_by_interval_window():
+    def back_to_export():
+        export_by_interval_widget.destroy()
+        export_window()
+
+    def export_meetings():
+        start_date = start_date_entry.get()
+        end_date = end_date_entry.get()
+        filename = filename_entry.get()
+        if not start_date or not end_date or not filename:
+            messagebox.showerror("Error", "All fields must be filled!")
+            return
+        format = "%Y-%m-%d %H:%M"
+        try:
+            time_diff = ( datetime.strptime(end_date, format) - datetime.strptime(start_date, format)).total_seconds() 
+            if time_diff < 0:
+                messagebox.showerror("Error", "Start Date must be before End Date!")
+                return
+
+        except ValueError:
+            messagebox.showerror("Error", "Date format not respected!")
+            return
+        
+        meetings = db_meetings_in_interval(start_date, end_date)
+        if not meetings:
+            messagebox.showinfo("Result", "No meetings found in the specified interval.")
+            return
+        result = export_to_ics(meetings,filename)
+        messagebox.showinfo("Result", result)
+  
+    export_by_interval_widget = tk.Tk()
+    export_by_interval_widget.title("Export by interval")
+
+    tk.Label(export_by_interval_widget, text="Start Date (YYYY-MM-DD HH:MM):").grid(row=0, column=0, padx=10, pady=5)
+    start_date_entry = tk.Entry(export_by_interval_widget)
+    start_date_entry.grid(row=0, column=1, padx=10, pady=5)
+
+    tk.Label(export_by_interval_widget, text="End Date (YYYY-MM-DD HH:MM):").grid(row=1, column=0, padx=10, pady=5)
+    end_date_entry = tk.Entry(export_by_interval_widget)
+    end_date_entry.grid(row=1, column=1, padx=10, pady=5)
+
+    tk.Label(export_by_interval_widget, text="File Name:").grid(row=2, column=0, padx=10, pady=5)
+    filename_entry = tk.Entry(export_by_interval_widget)
+    filename_entry.grid(row=2, column=1, padx=10, pady=5)
+
+    export_button = tk.Button(export_by_interval_widget, text="Export", command=export_meetings)
+    export_button.grid(row=3, column=0, columnspan=2, pady=10)
+
+    back_button = tk.Button(export_by_interval_widget, text="Back", command=back_to_export)
+    back_button.grid(row=4, column=0, columnspan=2, pady=10)
+
+    export_by_interval_widget.mainloop()
+
+def export_window():
+    def back_to_main():
+        export_widget.destroy()
+        main_menu()
+
+    def open_export_by_id():
+        export_widget.destroy()
+        export_by_id_window()
+    
+    def open_export_by_interval():
+        export_widget.destroy()
+        export_by_interval_window()  
+    
+    export_widget = tk.Tk()
+    export_widget.geometry("280x180")
+    export_widget.title("Export")
+    tk.Button(export_widget, text="Export by id", command=open_export_by_id, width=20).pack(pady=10)
+    tk.Button(export_widget, text="Export by interval", command=open_export_by_interval, width=20).pack(pady=10)
+    tk.Button(export_widget, text="Back", command=back_to_main, width=20).pack(pady=10)
+    
+    export_widget.mainloop()
 
 main_menu()
 
