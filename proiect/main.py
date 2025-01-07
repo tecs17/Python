@@ -125,6 +125,21 @@ def db_get_meeting_by_id(id):
             })    
     return meetings
 
+def db_insert_meetings(data):
+    for meeting in data:
+        uid = meeting["id"]
+        start_date = meeting['start_date']
+        end_date = meeting['end_date']
+        title = meeting['title']
+        result = cur.execute("""INSERT INTO meetings (start_date,end_date,title) VALUES
+                    (%s,%s,%s); 
+                    """, (start_date,end_date,title))
+        if result != None:
+            return f"An error occurred while importing meeting with uid = {uid}!"
+    conn.commit()
+    return "Import succesfull"
+
+
 def main_menu():
     def open_add_person():
         root.destroy()
@@ -142,15 +157,19 @@ def main_menu():
         root.destroy()
         export_window()
 
+    def open_import():
+        root.destroy()
+        import_window()
+
     root = tk.Tk()
-    root.geometry("300x180")
+    root.geometry("300x230")
     root.title("Meeting Scheduler")
 
     tk.Button(root, text="Add a Person", command=open_add_person, width=20).pack(pady=10)
     tk.Button(root, text="Create a Meeting", command=open_create_meeting, width=20).pack(pady=10)
     tk.Button(root, text="Print Meetings in Interval", command=open_print_meetings, width=20).pack(pady=10)
     tk.Button(root, text="Export", command=open_export, width=20).pack(pady=10)
-
+    tk.Button(root, text="Import", command=open_import, width=20).pack(pady=10)
     
     root.mainloop()
 
@@ -371,8 +390,97 @@ def print_meetings_window():
     
     print_meetings.mainloop()
 
+def import_from_ics(file_name):
+    file_name+=".ics"
+    try:
+        meetings = []
+        with open(file_name, "r") as f:
+            lines = f.readlines()
+        
+        meeting = {}
+        for line in lines:
+            line = line.strip()
+            if line.startswith("BEGIN:VEVENT"):
+                meeting = {}
+            elif line.startswith("UID:"):
+                meeting["id"] = line.split(":")[1]
+            elif line.startswith("DTSTART:"):
+                meeting["start_date"] = datetime.strptime(line.split(":")[1], "%Y%m%dT%H%M%S")
+            elif line.startswith("DTEND:"):
+                meeting["end_date"] = datetime.strptime(line.split(":")[1], "%Y%m%dT%H%M%S")
+            elif line.startswith("SUMMARY:"):
+                meeting["title"] = line.split(":")[1]
+            elif line.startswith("ATTENDEE:"):
+                if "attendees" not in meeting:
+                    meeting["attendees"] = []
+                meeting["attendees"].append(line.split(":")[1])
+            elif line.startswith("END:VEVENT"):
+                meetings.append(meeting)
+        
+        return meetings
+    except Exception as e:
+        return e
+
+from pathlib import Path
+
 def import_window():
-    print()
+    def back_to_main():
+        import_widget.destroy()
+        main_menu()
+
+    def import_meeting():
+        filename = filename_entry.get()
+        if not filename:
+            messagebox.showerror("Error", "No filename provided!")
+            return
+        my_file = Path("./"+filename+".ics")
+        if not my_file.is_file():
+            messagebox.showerror("Error", "File doesn`t exist!")
+            return
+        import_data = import_from_ics(filename)
+        if not isinstance(import_data,list):
+            messagebox.showerror("Error", import_data)
+        # check pt datetime
+        try:
+            format = "%Y-%m-%d %H:%M"
+            for meeting in import_data:
+                id = meeting['id']
+                start_date = meeting['start_date']
+                end_date = meeting['end_date']
+                time_diff = ( end_date - start_date).total_seconds() 
+                if time_diff < 0:
+                    messagebox.showerror("Error", f"Meeting with UID {id} has DTEND before DTSTART!")
+                    return
+                today = datetime.now()
+                time_diff = (end_date - start_date).total_seconds() 
+                if time_diff > 28800: #8*60*60 - 8 ore in sec
+                    messagebox.showerror("Error", "A meeting cannot exceed 8 hours!")
+                    return
+        except ValueError:
+            messagebox.showerror("Error", "Date format not respected!")
+            return
+
+        except ValueError:
+            messagebox.showerror("Error", "Date format not respected!")
+            return
+
+        result = db_insert_meetings(import_data)
+        messagebox.showinfo("Result", result)
+
+    import_widget = tk.Tk()
+    import_widget.title("Import")
+
+    tk.Label(import_widget, text="Filename:").grid(row=0, column=0, padx=10, pady=5)
+    filename_entry = tk.Entry(import_widget)
+    filename_entry.grid(row=0, column=1, padx=10, pady=5)
+
+    import_button = tk.Button(import_widget, text="Import", command=import_meeting)
+    import_button.grid(row=1, column=0, columnspan=2, pady=10)
+
+    back_button = tk.Button(import_widget, text="Back", command=back_to_main)
+    back_button.grid(row=2, column=0, columnspan=2, pady=10)
+
+    import_widget.mainloop()
 
 def export_to_ics(meetings, file_name):
     file_name += ".ics"
@@ -380,16 +488,13 @@ def export_to_ics(meetings, file_name):
         with open(file_name, "w") as f:
             f.write("BEGIN:VCALENDAR\n")
             f.write("VERSION:2.0\n")
-            #f.write("PRODID:-//YourAppName//MeetingScheduler//EN\n")
             
             for meeting in meetings.values():
                 f.write("BEGIN:VEVENT\n")
                 f.write(f"UID:meeting_{meeting['meeting_id']}\n")
-                #f.write(f"DTSTAMP:{datetime.now().strftime('%Y%m%dT%H%M%SZ')}\n")
                 f.write(f"DTSTART:{meeting['start_date'].strftime('%Y%m%dT%H%M%S')}\n")
                 f.write(f"DTEND:{meeting['end_date'].strftime('%Y%m%dT%H%M%S')}\n")
                 f.write(f"SUMMARY:{meeting['title']}\n")
-               # f.write(f"DESCRIPTION:{meeting['description']}\n")
                 for attendee in meeting["attendees"]:
                     f.write(f"ATTENDEE:{attendee['name']}\n")
                 f.write("END:VEVENT\n")
@@ -517,6 +622,8 @@ def export_window():
     export_widget.mainloop()
 
 main_menu()
+
+#print(db_insert_meetings(import_from_ics("da")))
 
 conn.commit()
 cur.close()
