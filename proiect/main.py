@@ -1,16 +1,42 @@
+"""
+A meeting scheduler application that provides functionality to manage persons and meetings.
+
+Features:
+- Add persons to the database.
+- Create meetings with associated attendees.
+- Fetch meetings within a specified date range.
+- Import and export meeting data.
+
+Requires a PostgreSQL database with appropriate tables.
+"""
+
 import datetime
 from datetime import datetime
 import psycopg2
 import time
 import tkinter as tk
 from tkinter import messagebox,ttk
+from pathlib import Path
+
 
 
 conn = psycopg2.connect(host="localhost",dbname="postgres",user="postgres",password="1762",port=5432)
 
 cur = conn.cursor()
 
+
 def db_create_person(name,age,gender):
+    """
+Adds a person to the database.
+
+Args:
+    name (str): The name of the person.
+    age (int): The age of the person.
+    gender (str): The gender of the person.
+
+Returns:
+    str: A success or error message.
+"""
     result = cur.execute("""INSERT INTO persons (name,age,gender) VALUES
                 (%s,%s,%s);
                 """,(name,age,gender))
@@ -20,6 +46,12 @@ def db_create_person(name,age,gender):
     return "An error occurred while creating the person."
 
 def db_get_all_persons():
+    """
+Fetches all persons from the database.
+
+Returns:
+    list: A list of tuples containing person information (id, name, age).
+"""
     result = cur.execute("""SELECT id,name,age FROM persons;""")
     rows = cur.fetchall()
     persons = []
@@ -28,7 +60,19 @@ def db_get_all_persons():
     return persons
 
 def db_create_meeting(start_date,end_date,title,person_ids):
-    #fac checkuri pentru date incorecte inainte
+    """
+Creates a meeting and associates attendees with it.
+
+Args:
+    start_date (str): The start date of the meeting in 'YYYY-MM-DD' format.
+    end_date (str): The end date of the meeting in 'YYYY-MM-DD' format.
+    title (str): The title of the meeting.
+    person_ids (list): A list of person IDs to associate with the meeting.
+
+Returns:
+    str: A success or error message.
+"""
+    print(type(start_date))
     result = cur.execute("""INSERT INTO meetings (start_date,end_date,title) VALUES
                 (%s,%s,%s)
                 RETURNING id; 
@@ -45,8 +89,18 @@ def db_create_meeting(start_date,end_date,title,person_ids):
             return f"An error occurred while creating the meeting-person entry for person_id = {person_id}."
     conn.commit()
     return "Meeting created succesfully"
-    
+
 def db_meetings_in_interval(start_date, end_date):
+    """
+Fetches meetings within a specified date range, along with their attendees.
+
+Args:
+    start_date (str): The start date of the interval in 'YYYY-MM-DD' format.
+    end_date (str): The end date of the interval in 'YYYY-MM-DD' format.
+
+Returns:
+    dict: A dictionary of meetings with attendees, or None if no meetings are found.
+"""
     cur.execute("""
         SELECT 
             m.id AS meeting_id, m.start_date, m.end_date, m.title,
@@ -88,6 +142,16 @@ def db_meetings_in_interval(start_date, end_date):
     return meetings
 
 def db_get_meeting_by_id(id):
+    """
+Fetches meeting details and attendees for a specific meeting ID.
+
+Args:
+    id (int): The ID of the meeting to fetch.
+
+Returns:
+    dict: A dictionary containing meeting details and a list of attendees,
+          or None if the meeting ID is not found.
+"""
     cur.execute("""
         SELECT 
             m.id AS meeting_id, m.start_date, m.end_date, m.title,
@@ -126,6 +190,16 @@ def db_get_meeting_by_id(id):
     return meetings
 
 def db_insert_meetings(data):
+    """
+Imports a list of meetings into the database.
+
+Args:
+    data (list): A list of dictionaries, where each dictionary contains meeting data
+                 (id, start_date, end_date, title).
+
+Returns:
+    str: A success or error message.
+"""
     for meeting in data:
         uid = meeting["id"]
         start_date = meeting['start_date']
@@ -139,8 +213,12 @@ def db_insert_meetings(data):
     conn.commit()
     return "Import succesfull"
 
-
 def main_menu():
+    """
+Displays the main menu of the Meeting Scheduler application.
+
+Provides options for adding a person, creating a meeting, printing meetings, and importing/exporting data.
+"""
     def open_add_person():
         root.destroy()
         add_person_window()
@@ -174,6 +252,11 @@ def main_menu():
     root.mainloop()
 
 def add_person_window():
+    """
+Opens the window to add a new person to the database.
+
+Allows the user to input the name, age, and gender of the person.
+"""
     def back_to_main():
         add_person.destroy()
         main_menu()
@@ -221,6 +304,12 @@ def add_person_window():
     add_person.mainloop()
 
 def create_meeting_window():
+    """
+Opens the window to create a new meeting.
+
+Allows the user to specify the start and end dates, title, and attendees for the meeting.
+Includes validations for date and time constraints.
+"""
     persons_in_db = db_get_all_persons()
 
     def back_to_main():
@@ -249,7 +338,7 @@ def create_meeting_window():
             if time_diff < 0:
                 messagebox.showerror("Error", "Start Date must be before End Date!")
                 return
-            if time_diff > 28800: #8*60*60 - 8 ore in sec
+            if time_diff > 28800: #8 ore in sec
                 messagebox.showerror("Error", "A meeting cannot exceed 8 hours!")
                 return
         except ValueError:
@@ -306,6 +395,11 @@ def create_meeting_window():
     create_meeting.mainloop()
 
 def print_meetings_window():
+    """
+Opens the window to print meetings within a specified time interval.
+
+Allows the user to input start and end dates, fetches the meetings, and displays details.
+"""
     def back_to_main():
         print_meetings.destroy()
         main_menu()
@@ -391,6 +485,20 @@ def print_meetings_window():
     print_meetings.mainloop()
 
 def import_from_ics(file_name):
+    """
+Imports meeting data from an ICS file.
+
+Args:
+    file_name (str): The name of the file.
+
+Returns:
+        list: A list of dictionaries, each representing a meeting with keys such as 
+              'id', 'start_date', 'end_date', 'title', and 'attendees'.
+        or
+        Exception: If an error occurs while reading or parsing the file, an exception 
+                   is returned with the error message.
+"""
+
     file_name+=".ics"
     try:
         meetings = []
@@ -421,9 +529,15 @@ def import_from_ics(file_name):
     except Exception as e:
         return e
 
-from pathlib import Path
-
 def import_window():
+    """
+Opens a window that allows users to import meeting data from an ICS file.
+
+The user must provide a valid ICS filename. The function validates the existence
+of the file, checks for format correctness (meeting start/end times), and ensures 
+the duration does not exceed 8 hours. The meetings are then imported into the database.
+"""
+
     def back_to_main():
         import_widget.destroy()
         main_menu()
@@ -442,7 +556,6 @@ def import_window():
             messagebox.showerror("Error", import_data)
         # check pt datetime
         try:
-            format = "%Y-%m-%d %H:%M"
             for meeting in import_data:
                 id = meeting['id']
                 start_date = meeting['start_date']
@@ -451,15 +564,10 @@ def import_window():
                 if time_diff < 0:
                     messagebox.showerror("Error", f"Meeting with UID {id} has DTEND before DTSTART!")
                     return
-                today = datetime.now()
                 time_diff = (end_date - start_date).total_seconds() 
-                if time_diff > 28800: #8*60*60 - 8 ore in sec
+                if time_diff > 28800: # 8 ore in sec
                     messagebox.showerror("Error", "A meeting cannot exceed 8 hours!")
                     return
-        except ValueError:
-            messagebox.showerror("Error", "Date format not respected!")
-            return
-
         except ValueError:
             messagebox.showerror("Error", "Date format not respected!")
             return
@@ -483,6 +591,18 @@ def import_window():
     import_widget.mainloop()
 
 def export_to_ics(meetings, file_name):
+    """
+Exports a dictionary of meetings to an ICS file format.
+
+Args:
+    meetings (dict): A dictionary of meetings, where each meeting contains details
+                     like 'meeting_id', 'start_date', 'end_date', 'title', and 'attendees'.
+    file_name (str): The name of the ICS file to be created (without extension).
+
+Returns:
+    str: A success or error message indicating the result of the export.
+"""
+
     file_name += ".ics"
     try:
         with open(file_name, "w") as f:
@@ -505,6 +625,14 @@ def export_to_ics(meetings, file_name):
         return f"Error during export: {e}"
 
 def export_by_id_window():
+    """
+Opens a window that allows users to export a meeting by its ID.
+
+The user must input the meeting ID and the desired ICS filename. The function validates
+the meeting ID, checks if the meeting exists in the database, and exports the meeting data 
+to an ICS file.
+"""
+
     def back_to_export():
         export_by_id_widget.destroy()
         export_window()
@@ -547,6 +675,14 @@ def export_by_id_window():
     export_by_id_widget.mainloop()
 
 def export_by_interval_window():
+    """
+Opens a window that allows users to export meetings within a specified time interval.
+
+The user must input a start and end date, and the desired ICS filename. The function 
+validates the dates, ensuring the start date is before the end date, and exports all 
+meetings in the specified interval to an ICS file.
+"""
+
     def back_to_export():
         export_by_interval_widget.destroy()
         export_window()
@@ -600,6 +736,13 @@ def export_by_interval_window():
     export_by_interval_widget.mainloop()
 
 def export_window():
+    """
+Opens the main export window, allowing the user to choose between exporting by ID or by date interval.
+
+The user can choose to export meetings based on their ID or a time interval. Each option opens
+a new window to complete the export process.
+"""
+
     def back_to_main():
         export_widget.destroy()
         main_menu()
@@ -622,8 +765,6 @@ def export_window():
     export_widget.mainloop()
 
 main_menu()
-
-#print(db_insert_meetings(import_from_ics("da")))
 
 conn.commit()
 cur.close()
